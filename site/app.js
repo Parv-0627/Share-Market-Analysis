@@ -266,7 +266,8 @@
   }
 
   async function activeRun(token) {
-    const data = await gh(`/workflows/${WORKFLOW}/runs?per_page=5`, token);
+    // Sirf Refresh/Run-workflow wale runs (push wale runs sirf website deploy karte hain, report nahi banate)
+    const data = await gh(`/workflows/${WORKFLOW}/runs?event=workflow_dispatch&per_page=5`, token);
     return (data.workflow_runs || []).find((r) => r.status !== "completed") || null;
   }
 
