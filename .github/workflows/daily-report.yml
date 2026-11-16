@@ -1,0 +1,65 @@
+name: Daily Market Report
+
+on:
+  schedule:
+    # 02:00 UTC = 07:30 IST, Mon-Fri. GitHub cron 10-20 min late bhi chal sakta hai,
+    # isliye 7:30 par start karte hain taaki report 8 baje tak website par ho.
+    - cron: "0 2 * * 1-5"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths: ["site/**", "!site/data/**"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Generate report
+        if: github.event_name != 'push'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python run.py
+
+      - name: Commit report
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "market-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data
+          git diff --cached --quiet || git commit -m "Report $(TZ=Asia/Kolkata date +%F)"
+          git pull --rebase
+          git push
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: report
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
