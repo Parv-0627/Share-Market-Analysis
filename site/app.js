@@ -150,7 +150,7 @@
   }
 
   async function getJSON(path) {
-    const res = await fetch(path, { cache: "no-store" });
+    const res = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
     return res.json();
   }
@@ -161,10 +161,124 @@
       const r = await getJSON(date ? `data/archive/${date}.json` : "data/latest.json");
       render(r);
       document.title = `Subah 8 Baje · ${r.date}`;
+      if (!date && r.generated_at) latestGeneratedAt = new Date(r.generated_at).getTime();
     } catch (e) {
-      app.innerHTML = `<section class="card"><p class="empty">Abhi koi report nahi mili. Pehli report agle subah 8 baje (Mon–Fri) aayegi, ya GitHub Actions se "Run workflow" chalaayein.</p></section>`;
+      app.innerHTML = `<section class="card"><p class="empty">Abhi koi report nahi hai. Upar <strong>🔄 Refresh</strong> dabayein, 5-10 min me taza report aa jayegi.</p></section>`;
     }
   }
+
+  // ---------- Refresh: button dabane par hi GitHub Action (aur Claude API) chalta hai ----------
+  const OWNER = location.hostname.endsWith(".github.io") ? location.hostname.split(".")[0] : "Parv-0627";
+  const REPO = location.pathname.split("/").filter(Boolean)[0] || "Share-Market-Analysis";
+  const WORKFLOW = "daily-report.yml";
+  const API = `https://api.github.com/repos/${OWNER}/${REPO}/actions`;
+  const TOKEN_KEY = "gh_refresh_token";
+  const btn = document.getElementById("refresh-btn");
+  const statusEl = document.getElementById("refresh-status");
+  const dialog = document.getElementById("token-dialog");
+  const tokenInput = document.getElementById("token-input");
+  document.getElementById("repo-name").textContent = REPO;
+  let latestGeneratedAt = null;
+
+  const store = {
+    get() { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
+    set(v) { try { localStorage.setItem(TOKEN_KEY, v); } catch {} },
+    clear() { try { localStorage.removeItem(TOKEN_KEY); } catch {} },
+  };
+
+  function setStatus(msg, kind = "") {
+    statusEl.hidden = !msg;
+    statusEl.className = `wrap status ${kind}`;
+    statusEl.innerHTML = msg || "";
+  }
+
+  async function gh(path, token, opts = {}) {
+    const res = await fetch(`${API}${path}`, {
+      ...opts,
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
+    });
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      const err = new Error("auth");
+      err.status = res.status;
+      throw err;
+    }
+    if (!res.ok) throw new Error(`GitHub ${res.status}`);
+    return res.status === 204 ? null : res.json();
+  }
+
+  async function activeRun(token) {
+    const data = await gh(`/workflows/${WORKFLOW}/runs?per_page=5`, token);
+    return (data.workflow_runs || []).find((r) => r.status !== "completed") || null;
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function waitForRun(token, runId, startedAt) {
+    for (;;) {
+      await sleep(15000);
+      const run = await gh(`/runs/${runId}`, token);
+      const mins = Math.max(0, Math.round((Date.now() - startedAt) / 60000));
+      if (run.status !== "completed") {
+        setStatus(`⏳ Taza report ban rahi hai… (${mins} min, aam taur par 5-10 min lagte hain). Ye page khula rakhein.`);
+        continue;
+      }
+      return run;
+    }
+  }
+
+  async function refresh() {
+    const token = store.get();
+    if (!token) { tokenInput.value = ""; dialog.showModal(); return; }
+
+    if (latestGeneratedAt && Date.now() - latestGeneratedAt < 30 * 60000) {
+      const mins = Math.round((Date.now() - latestGeneratedAt) / 60000);
+      if (!window.confirm(`Report sirf ${mins} min pehle bani thi. Phir bhi nayi banayein? (Claude API ka kharcha hoga)`)) return;
+    }
+
+    btn.disabled = true;
+    try {
+      let run = await activeRun(token);
+      const startedAt = Date.now();
+      if (run) {
+        setStatus("⏳ Ek report pehle se ban rahi hai, usi ka intezaar kar rahe hain…");
+      } else {
+        setStatus("🚀 Refresh shuru kar rahe hain…");
+        await gh(`/workflows/${WORKFLOW}/dispatches`, token, { method: "POST", body: JSON.stringify({ ref: "main" }) });
+        for (let i = 0; i < 10 && !run; i++) { await sleep(3000); run = await activeRun(token); }
+        if (!run) throw new Error("Run shuru nahi hua dikha");
+      }
+      setStatus("⏳ Taza report ban rahi hai… (5-10 min lagte hain). Ye page khula rakhein.");
+      const done = await waitForRun(token, run.id, startedAt);
+      if (done.conclusion !== "success") {
+        setStatus(`❌ Report nahi ban payi (${esc(done.conclusion)}). <a href="${esc(done.html_url)}" target="_blank" rel="noopener">GitHub par error dekhein</a>`, "err");
+        return;
+      }
+      setStatus("✅ Taza report aa gayi!", "ok");
+      await sleep(5000); // Pages ko naya version serve karne do
+      await init();
+      setTimeout(() => setStatus(""), 8000);
+    } catch (e) {
+      if (e.message === "auth") {
+        store.clear();
+        setStatus("❌ Token galat hai, expire ho gaya, ya usme <strong>Actions: Read and write</strong> permission nahi hai. Dobara Refresh dabakar naya token daalein.", "err");
+      } else {
+        setStatus(`❌ Refresh fail: ${esc(e.message)}. <a href="https://github.com/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}" target="_blank" rel="noopener">GitHub par khud chalayein</a>`, "err");
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  btn.addEventListener("click", refresh);
+  document.getElementById("token-cancel").addEventListener("click", () => dialog.close());
+  document.getElementById("token-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = tokenInput.value.trim();
+    if (!v) return;
+    store.set(v);
+    dialog.close();
+    refresh();
+  });
 
   async function init() {
     let dates = [];
@@ -176,11 +290,11 @@
     select.disabled = !dates.length;
     const start = dates.includes(fromHash) ? fromHash : null;
     if (start) select.value = start;
-    select.addEventListener("change", () => {
+    select.onchange = () => {
       location.hash = select.value === dates[0] ? "" : select.value;
       load(select.value === dates[0] ? null : select.value);
-    });
-    load(start);
+    };
+    await load(start);
   }
 
   init();

@@ -1,10 +1,8 @@
-name: Daily Market Report
+name: Market Report
 
+# Koi automatic schedule nahi: report sirf website ke "Refresh" button se
+# (ya Actions tab me "Run workflow" se) banti hai, taaki API kharcha sirf zarurat par ho.
 on:
-  schedule:
-    # 02:00 UTC = 07:30 IST, Mon-Fri. GitHub cron 10-20 min late bhi chal sakta hai,
-    # isliye 7:30 par start karte hain taaki report 8 baje tak website par ho.
-    - cron: "0 2 * * 1-5"
   workflow_dispatch: {}
   push:
     branches: [main]

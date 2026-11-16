@@ -1,6 +1,6 @@
 # Subah 8 Baje: Market Brief
 
-Roz subah (Mon–Fri) market khulne se pehle ek website par Indian share market ka analysis:
+Website par **🔄 Refresh** dabao, 5-10 min me Indian share market ka taza analysis:
 
 - **Market mood**: expected opening (GIFT Nifty), Nifty/Bank Nifty support-resistance, FII/DII
 - **Global cues**: US, Asia, crude, gold, rupee, dollar, bond yield
@@ -16,7 +16,7 @@ Roz subah (Mon–Fri) market khulne se pehle ek website par Indian share market 
 ## Kaise kaam karta hai
 
 ```
-GitHub Actions (07:30 IST, Mon–Fri)
+Website ka Refresh button → GitHub Actions (sirf button dabane par)
   ├─ src/news.py     → ET, Livemint, Google News RSS (pichhle 20 ghante)
   ├─ src/market.py   → Nifty, Sensex, Bank Nifty, VIX, US/Asia indices, crude, gold, USD/INR (yfinance)
   ├─ src/analyze.py  → Claude: (1) web search se GIFT Nifty, FII/DII, aaj ke events
@@ -31,10 +31,13 @@ GitHub Actions (07:30 IST, Mon–Fri)
 2. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**
    - Name: `ANTHROPIC_API_KEY`, Value: aapki key
 3. GitHub repo → **Settings → Pages → Build and deployment → Source: "GitHub Actions"**
-4. **Actions** tab → "Daily Market Report" → **Run workflow** (pehli report turant banane ke liye).
-5. Website: `https://<username>.github.io/Share-Market-Analysis/`
+4. Website kholo: `https://<username>.github.io/Share-Market-Analysis/` → **🔄 Refresh**.
+   Pehli baar ek GitHub token maangega (fine-grained, sirf is repo ke liye, permission **Actions: Read and write**).
+   Token sirf aapke browser me save hota hai. Refresh ke bina koi report nahi banti, isliye API kharcha sirf tab hota hai.
 
-Iske baad har Mon–Fri subah 7:30 IST par apne aap chalega (GitHub kabhi-kabhi 10-20 min late chalata hai, isliye 8 baje se pehle start rakha hai).
+Bina token ke: **Actions** tab → "Market Report" → **Run workflow** se bhi report ban jaati hai.
+
+Roz automatic chalana ho to `.github/workflows/daily-report.yml` me `schedule: - cron: "0 2 * * 1-5"` (07:30 IST) wapas jod dein.
 
 ## Local chalana
 
@@ -47,11 +50,11 @@ python -m http.server -d site 8000  # http://localhost:8000
 
 ## Kharcha
 
-Claude Opus 5.5 per report: ~50k input + ~15k output tokens + ~10 web searches ≈ **$0.5–0.8 (₹45–70)**, yaani mahine ka lagbhag ₹1,000–1,500 (sirf weekdays). GitHub Actions + Pages public repo ke liye free hain.
+Har Refresh = ek report = Claude Opus 5.5 ka kharcha (asli figure pehle successful run ke baad yahan update hoga). Jitni baar Refresh, utni baar kharcha; 30 min ke andar dobara dabane par website confirm karti hai. GitHub Actions + Pages public repo ke liye free hain.
 
 ## Customize
 
 - News sources: `src/news.py` → `FEEDS`
 - Indices/commodities: `src/market.py` → `SYMBOLS`
 - Analysis ka tareeka / bhasha: `src/analyze.py` → `SYSTEM_PROMPT`, `RESEARCH_PROMPT`
-- Timing: `.github/workflows/daily-report.yml` → `cron`
+- Auto schedule: `.github/workflows/daily-report.yml` → `schedule`

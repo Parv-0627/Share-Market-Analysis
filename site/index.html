@@ -20,9 +20,31 @@
       <div class="controls">
         <label for="date-select" class="sr">Report date</label>
         <select id="date-select" aria-label="Report date"></select>
+        <button id="refresh-btn" class="btn primary" type="button">🔄 Refresh</button>
       </div>
     </div>
+    <div id="refresh-status" class="wrap status" hidden></div>
   </header>
+
+  <dialog id="token-dialog">
+    <form method="dialog" id="token-form">
+      <h2>Refresh ke liye GitHub token (sirf ek baar)</h2>
+      <p class="small">Refresh dabane par GitHub par report banane ka kaam chalta hai (Claude API ka kharcha isi waqt hota hai). Isliye ek token chahiye, taaki sirf aap hi refresh kar sakein. Token sirf <strong>aapke is browser</strong> me save hota hai, kahin bheja nahi jaata (sirf GitHub ko).</p>
+      <ol class="small">
+        <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Ye link kholein</a> (Fine-grained token).</li>
+        <li>Token name: <code>market-refresh</code>, Expiration: 1 year.</li>
+        <li><strong>Repository access</strong> → "Only select repositories" → <code id="repo-name">Share-Market-Analysis</code></li>
+        <li><strong>Permissions</strong> → Repository permissions → <strong>Actions: Read and write</strong></li>
+        <li><strong>Generate token</strong> dabayein, token copy karke neeche paste karein.</li>
+      </ol>
+      <label for="token-input" class="small"><strong>Token</strong></label>
+      <input id="token-input" type="password" autocomplete="off" placeholder="github_pat_..." required>
+      <div class="dialog-actions">
+        <button type="button" class="btn" id="token-cancel">Cancel</button>
+        <button type="submit" class="btn primary">Save &amp; Refresh</button>
+      </div>
+    </form>
+  </dialog>
 
   <main class="wrap" id="app">
     <p class="loading">Report load ho raha hai…</p>
