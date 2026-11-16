@@ -103,7 +103,7 @@
 
     app.innerHTML = `
       <section class="card hero">
-        <div class="meta">${esc(genStr)} · ${esc(r.news_count ?? "?")} news analyse ki gayi</div>
+        <div class="meta">${esc(genStr)}${r.market_phase ? ` · ${esc(r.market_phase)}` : ""} · ${esc(r.news_count ?? "?")} news analyse ki gayi</div>
         <p class="headline">${esc(r.headline)}</p>
         <div class="badges">
           <span class="badge ${moodCls}">Mood: ${esc(moodLabel)}</span>
@@ -112,7 +112,7 @@
         <p>${esc(m.summary)}</p>
       </section>
 
-      ${tiles ? card("Market Snapshot <span class=\"muted small\">(pichhla close)</span>", `<div class="tiles">${tiles}</div>`) : ""}
+      ${tiles ? card("Market Snapshot <span class=\"muted small\">(report ke waqt ka)</span>", `<div class="tiles">${tiles}</div>`) : ""}
 
       ${card(
         "Key Levels &amp; Flows",
@@ -160,7 +160,7 @@
     try {
       const r = await getJSON(date ? `data/archive/${date}.json` : "data/latest.json");
       render(r);
-      document.title = `Subah 8 Baje · ${r.date}`;
+      document.title = `Market Brief · ${r.date}`;
       if (!date && r.generated_at) latestGeneratedAt = new Date(r.generated_at).getTime();
     } catch (e) {
       app.innerHTML = `<section class="card"><p class="empty">Abhi koi report nahi hai. Upar <strong>🔄 Refresh</strong> dabayein, 5-10 min me taza report aa jayegi.</p></section>`;
@@ -172,19 +172,76 @@
   const REPO = location.pathname.split("/").filter(Boolean)[0] || "Share-Market-Analysis";
   const WORKFLOW = "daily-report.yml";
   const API = `https://api.github.com/repos/${OWNER}/${REPO}/actions`;
-  const TOKEN_KEY = "gh_refresh_token";
+  const PW_KEY = "refresh_pw";
   const btn = document.getElementById("refresh-btn");
   const statusEl = document.getElementById("refresh-status");
-  const dialog = document.getElementById("token-dialog");
-  const tokenInput = document.getElementById("token-input");
-  document.getElementById("repo-name").textContent = REPO;
+  const dialog = document.getElementById("pw-dialog");
+  const pwInput = document.getElementById("pw-input");
+  const pwRemember = document.getElementById("pw-remember");
+  const pwError = document.getElementById("pw-error");
   let latestGeneratedAt = null;
 
   const store = {
-    get() { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
-    set(v) { try { localStorage.setItem(TOKEN_KEY, v); } catch {} },
-    clear() { try { localStorage.removeItem(TOKEN_KEY); } catch {} },
+    get() { try { return localStorage.getItem(PW_KEY); } catch { return null; } },
+    set(v) { try { localStorage.setItem(PW_KEY, v); } catch {} },
+    clear() { try { localStorage.removeItem(PW_KEY); } catch {} },
   };
+
+  // site/refresh-key.json me GitHub token password se encrypted hai (set_password.py se bana).
+  const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  async function decryptToken(password) {
+    const k = await getJSON("refresh-key.json").catch(() => null);
+    if (!k) throw new Error("nokey");
+    const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: unb64(k.salt), iterations: k.iter, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+    );
+    try {
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(k.iv) }, key, unb64(k.data));
+      return new TextDecoder().decode(plain);
+    } catch {
+      throw new Error("badpw");
+    }
+  }
+
+  function askPassword(errorMsg = "") {
+    return new Promise((resolve) => {
+      pwInput.value = "";
+      pwError.textContent = errorMsg;
+      pwError.hidden = !errorMsg;
+      dialog.onclose = () => resolve(dialog.returnValue === "ok" ? { pw: pwInput.value, remember: pwRemember.checked } : null);
+      dialog.returnValue = "";
+      dialog.showModal();
+      pwInput.focus();
+    });
+  }
+
+  async function getToken() {
+    let pw = store.get();
+    let remember = true;
+    let err = "";
+    for (let i = 0; i < 5; i++) {
+      if (!pw) {
+        const ans = await askPassword(err);
+        if (!ans || !ans.pw) return null;
+        ({ pw, remember } = ans);
+      }
+      setStatus("🔐 Password check ho raha hai…");
+      try {
+        const token = await decryptToken(pw);
+        if (remember) store.set(pw);
+        return token;
+      } catch (e) {
+        if (e.message === "nokey") throw e;
+        store.clear();
+        pw = null;
+        err = "❌ Galat password, dobara try karein.";
+        setStatus("");
+      }
+    }
+    return null;
+  }
 
   function setStatus(msg, kind = "") {
     statusEl.hidden = !msg;
@@ -227,9 +284,6 @@
   }
 
   async function refresh() {
-    const token = store.get();
-    if (!token) { tokenInput.value = ""; dialog.showModal(); return; }
-
     if (latestGeneratedAt && Date.now() - latestGeneratedAt < 30 * 60000) {
       const mins = Math.round((Date.now() - latestGeneratedAt) / 60000);
       if (!window.confirm(`Report sirf ${mins} min pehle bani thi. Phir bhi nayi banayein? (Claude API ka kharcha hoga)`)) return;
@@ -237,6 +291,8 @@
 
     btn.disabled = true;
     try {
+      const token = await getToken();
+      if (!token) { setStatus(""); return; }
       let run = await activeRun(token);
       const startedAt = Date.now();
       if (run) {
@@ -258,9 +314,10 @@
       await init();
       setTimeout(() => setStatus(""), 8000);
     } catch (e) {
-      if (e.message === "auth") {
-        store.clear();
-        setStatus("❌ Token galat hai, expire ho gaya, ya usme <strong>Actions: Read and write</strong> permission nahi hai. Dobara Refresh dabakar naya token daalein.", "err");
+      if (e.message === "nokey") {
+        setStatus("❌ Refresh password abhi set nahi hua. Codespace terminal me <code>python set_password.py</code> chalaayein aur push karein.", "err");
+      } else if (e.message === "auth") {
+        setStatus("❌ GitHub token kaam nahi kar raha (expire ho gaya ya permission kam hai). <code>python set_password.py</code> se naya token set karein.", "err");
       } else {
         setStatus(`❌ Refresh fail: ${esc(e.message)}. <a href="https://github.com/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}" target="_blank" rel="noopener">GitHub par khud chalayein</a>`, "err");
       }
@@ -270,14 +327,10 @@
   }
 
   btn.addEventListener("click", refresh);
-  document.getElementById("token-cancel").addEventListener("click", () => dialog.close());
-  document.getElementById("token-form").addEventListener("submit", (ev) => {
+  document.getElementById("pw-cancel").addEventListener("click", () => dialog.close(""));
+  document.getElementById("pw-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
-    const v = tokenInput.value.trim();
-    if (!v) return;
-    store.set(v);
-    dialog.close();
-    refresh();
+    dialog.close("ok");
   });
 
   async function init() {

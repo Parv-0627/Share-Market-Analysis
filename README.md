@@ -1,4 +1,4 @@
-# Subah 8 Baje: Market Brief
+# Market Brief
 
 Website par **🔄 Refresh** dabao, 5-10 min me Indian share market ka taza analysis:
 
@@ -31,13 +31,19 @@ Website ka Refresh button → GitHub Actions (sirf button dabane par)
 2. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**
    - Name: `ANTHROPIC_API_KEY`, Value: aapki key
 3. GitHub repo → **Settings → Pages → Build and deployment → Source: "GitHub Actions"**
-4. Website kholo: `https://<username>.github.io/Share-Market-Analysis/` → **🔄 Refresh**.
-   Pehli baar ek GitHub token maangega (fine-grained, sirf is repo ke liye, permission **Actions: Read and write**).
-   Token sirf aapke browser me save hota hai. Refresh ke bina koi report nahi banti, isliye API kharcha sirf tab hota hai.
+4. **Refresh password set karo** (ek baar, codespace terminal me):
+   ```bash
+   pip install cryptography
+   python set_password.py
+   git add site/refresh-key.json && git commit -m "Set refresh password" && git push
+   ```
+   Script ek GitHub token maangti hai (fine-grained, sirf is repo ke liye, permission **Actions: Read and write**)
+   aur aapka password (10+ characters). Token password se encrypt hokar website me rakha jaata hai.
+5. Website kholo: `https://<username>.github.io/Share-Market-Analysis/` → **🔄 Refresh** → password.
 
-Bina token ke: **Actions** tab → "Market Report" → **Run workflow** se bhi report ban jaati hai.
-
-Roz automatic chalana ho to `.github/workflows/daily-report.yml` me `schedule: - cron: "0 2 * * 1-5"` (07:30 IST) wapas jod dein.
+Report sirf Refresh par banti hai, us waqt ke hisaab se: market khulne se pehle = pre-market plan,
+market khula = live haal + baaki din ke ideas, band hone ke baad = summary + agle din ka plan.
+Bina password ke: **Actions** tab → "Market Report" → **Run workflow**.
 
 ## Local chalana
 

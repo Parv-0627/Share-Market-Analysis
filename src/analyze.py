@@ -129,9 +129,12 @@ REPORT_SCHEMA = {
     "additionalProperties": False,
 }
 
-SYSTEM_PROMPT = """Tum ek experienced Indian stock market analyst ho jo har subah 8 baje (IST), market khulne se pehle, retail traders ke liye pre-market brief banata hai.
+SYSTEM_PROMPT = """Tum ek experienced Indian stock market analyst ho jo retail traders ke liye market brief banata hai. Report us waqt ke hisaab se honi chahiye jab maangi gayi hai (time aur market phase message me diya hai):
+- Pre-market (9:15 se pehle): expected opening, GIFT Nifty, aaj ke liye intraday plan.
+- Market khula hai (9:15-15:30): abhi market kahan hai, kya chal raha hai, ab bache hue din ke liye intraday ideas (jo move ho chuka uske peeche mat bhaago).
+- Market band (15:30 ke baad / weekend / chhutti): aaj/pichhle session ka summary, aur agle trading session ke liye plan; expected_open me agle session ka andaza do.
 
-Tumhe di jaayengi: pichhle ~20 ghante ki news headlines (Indian + global), indices/commodities ka latest close data, aur aaj subah ke web research notes (GIFT Nifty, FII/DII data, aaj ke results/events, govt/RBI/SEBI announcements, badi khabron ki confirmation).
+Tumhe di jaayengi: pichhle ~20 ghante ki news headlines (Indian + global), indices/commodities ka latest data, aur abhi ke web research notes (GIFT Nifty, FII/DII data, aaj ke results/events, govt/RBI/SEBI announcements, badi khabron ki confirmation).
 
 Report kaise likhni hai:
 - Bhasha: simple Hinglish (Roman script Hindi + English market terms), jaise ek trader dost ko samjha rahe ho.
@@ -148,6 +151,7 @@ Ye educational analysis hai, SEBI-registered advice nahi; yeh disclaimer website
 
 
 def _build_user_message(news: list[dict], market: list[dict], today: str) -> str:
+    """`today` = IST date-time + market phase string (run.py banata hai)."""
     market_lines = "\n".join(
         f"- {m['name']}: {m['close']} ({m['change_pct']:+.2f}% 1D, {m['change_5d_pct']:+.2f}% 5D, as of {m['date']})"
         for m in market
@@ -158,17 +162,17 @@ def _build_user_message(news: list[dict], market: list[dict], today: str) -> str
         + f" <{n['link']}>"
         for i, n in enumerate(news, 1)
     )
-    return f"""Aaj ki date: {today} (IST). Pre-market report banao.
+    return f"""Abhi ka samay: {today}. Isi waqt ke hisaab se report banao.
 
-## Market data (latest close)
+## Market data (latest price; market khula ho to aaj ka live level)
 {market_lines}
 
 ## News headlines (latest pehle)
 {news_lines}"""
 
 
-RESEARCH_PROMPT = """Tum Indian stock market ke research assistant ho. Pre-market report ke liye web search karke ye cheezein dhoondo aur saaf bullet notes do (har point ke saath source URL):
-1. GIFT Nifty ka abhi ka level aur indicated opening (gap-up/down kitna).
+RESEARCH_PROMPT = """Tum Indian stock market ke research assistant ho. Market report ke liye (abhi ke samay ke hisaab se) web search karke ye cheezein dhoondo aur saaf bullet notes do (har point ke saath source URL):
+1. Market khulne se pehle: GIFT Nifty aur indicated opening. Market khula ho: Nifty/Bank Nifty abhi kahan hain, top gainers/losers, kya move kar raha hai. Band ho: aaj kaisa band hua aur GIFT Nifty.
 2. Pichhle trading din ka FII/DII cash data (crore me).
 3. Aaj ke quarterly results / board meetings / dividend-split record dates (bade naam).
 4. Aaj ya agle 1-3 din ke government, RBI, SEBI, GST council announcements ya policy events.
@@ -196,7 +200,7 @@ def _research_context(news: list[dict], market: list[dict], today: str, limit: i
     """
     market_lines = "; ".join(f"{m['name']} {m['close']} ({m['change_pct']:+.2f}%)" for m in market)
     heads = "\n".join(f"- {n['title']}" for n in news[:limit])
-    return f"Aaj ki date: {today} (IST).\nMarket close: {market_lines or 'n/a'}\n\nTop headlines:\n{heads}"
+    return f"Abhi ka samay: {today}.\nMarket: {market_lines or 'n/a'}\n\nTop headlines:\n{heads}"
 
 
 def _research(client: anthropic.Anthropic, context: str) -> str:
@@ -262,7 +266,7 @@ def analyze(news: list[dict], market: list[dict], today: str) -> dict:
     context = _build_user_message(news, market, today)
     messages: list = [{
         "role": "user",
-        "content": f"{context}\n\n## Web research notes (aaj subah ki)\n{notes}\n\nAb poori report do.",
+        "content": f"{context}\n\n## Web research notes (abhi ke)\n{notes}\n\nAb poori report do.",
     }]
 
     for attempt in range(2):

@@ -1,4 +1,4 @@
-"""Roz ka pre-market report: news + market data -> Claude analysis -> site/data/*.json
+"""Market report (jab Refresh dabao): news + market data -> Claude analysis -> site/data/*.json
 
 Chalane ke liye:  ANTHROPIC_API_KEY=... python run.py
 """
@@ -21,6 +21,18 @@ IST = ZoneInfo("Asia/Kolkata")
 DATA_DIR = Path(__file__).parent / "site" / "data"
 
 
+def market_phase(now: datetime) -> str:
+    """NSE timing ke hisaab se (chhutti ka pata Claude research se lagata hai)."""
+    if now.weekday() >= 5:
+        return "weekend (market band)"
+    hm = now.hour * 60 + now.minute
+    if hm < 9 * 60 + 15:
+        return "pre-market (abhi khula nahi)"
+    if hm <= 15 * 60 + 30:
+        return "market khula hai (live)"
+    return "market band ho chuka (post-market)"
+
+
 def main() -> None:
     now = datetime.now(IST)
     today = now.strftime("%Y-%m-%d")
@@ -30,8 +42,9 @@ def main() -> None:
     if not news:
         sys.exit("Koi news nahi mili, report nahi bana rahe.")
 
-    report = analyze(news, market, today)
+    report = analyze(news, market, f"{now:%Y-%m-%d %H:%M} IST ({now:%A}), market phase: {market_phase(now)}")
     report["date"] = today
+    report["market_phase"] = market_phase(now)
     report["generated_at"] = now.isoformat(timespec="minutes")
     report["model"] = MODEL
     report["market_data"] = market

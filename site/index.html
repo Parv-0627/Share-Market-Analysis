@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Subah 8 Baje: Market Brief</title>
-  <meta name="description" content="Roz subah 8 baje: Indian share market news, positive/negative stocks, events aur intraday/short-term view">
+  <title>Market Brief</title>
+  <meta name="description" content="Refresh par taza: Indian share market news, positive/negative stocks, events aur intraday/short-term view">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,8 +13,8 @@
       <div class="brand">
         <span class="dot" aria-hidden="true"></span>
         <div>
-          <h1>Subah 8 Baje</h1>
-          <p class="sub">Pre-market brief · NSE / BSE</p>
+          <h1>Market Brief</h1>
+          <p class="sub">Refresh par taza analysis · NSE / BSE</p>
         </div>
       </div>
       <div class="controls">
@@ -26,22 +26,17 @@
     <div id="refresh-status" class="wrap status" hidden></div>
   </header>
 
-  <dialog id="token-dialog">
-    <form method="dialog" id="token-form">
-      <h2>Refresh ke liye GitHub token (sirf ek baar)</h2>
-      <p class="small">Refresh dabane par GitHub par report banane ka kaam chalta hai (Claude API ka kharcha isi waqt hota hai). Isliye ek token chahiye, taaki sirf aap hi refresh kar sakein. Token sirf <strong>aapke is browser</strong> me save hota hai, kahin bheja nahi jaata (sirf GitHub ko).</p>
-      <ol class="small">
-        <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Ye link kholein</a> (Fine-grained token).</li>
-        <li>Token name: <code>market-refresh</code>, Expiration: 1 year.</li>
-        <li><strong>Repository access</strong> → "Only select repositories" → <code id="repo-name">Share-Market-Analysis</code></li>
-        <li><strong>Permissions</strong> → Repository permissions → <strong>Actions: Read and write</strong></li>
-        <li><strong>Generate token</strong> dabayein, token copy karke neeche paste karein.</li>
-      </ol>
-      <label for="token-input" class="small"><strong>Token</strong></label>
-      <input id="token-input" type="password" autocomplete="off" placeholder="github_pat_..." required>
+  <dialog id="pw-dialog">
+    <form method="dialog" id="pw-form">
+      <h2>🔐 Refresh password</h2>
+      <p class="small">Taza report banane par Claude API ka kharcha hota hai, isliye password chahiye.</p>
+      <label for="pw-input" class="small"><strong>Password</strong></label>
+      <input id="pw-input" type="password" autocomplete="current-password" required>
+      <p id="pw-error" class="small err-text" hidden></p>
+      <label class="small remember"><input type="checkbox" id="pw-remember" checked> Is device par yaad rakho</label>
       <div class="dialog-actions">
-        <button type="button" class="btn" id="token-cancel">Cancel</button>
-        <button type="submit" class="btn primary">Save &amp; Refresh</button>
+        <button type="button" class="btn" id="pw-cancel">Cancel</button>
+        <button type="submit" class="btn primary">Refresh</button>
       </div>
     </form>
   </dialog>
