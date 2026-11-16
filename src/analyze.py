@@ -188,16 +188,28 @@ def _check(response, step: str) -> None:
         raise RuntimeError(f"[{step}] Response max_tokens par kat gaya")
 
 
+def _research_context(news: list[dict], market: list[dict], today: str, limit: int = 60) -> str:
+    """Research step ke liye chhota context: sirf top headlines (bina summary/link).
+
+    Web search ke har round me poora context dobara padha jaata hai, isliye yahan
+    chhota rakhna kharcha bahut kam karta hai.
+    """
+    market_lines = "; ".join(f"{m['name']} {m['close']} ({m['change_pct']:+.2f}%)" for m in market)
+    heads = "\n".join(f"- {n['title']}" for n in news[:limit])
+    return f"Aaj ki date: {today} (IST).\nMarket close: {market_lines or 'n/a'}\n\nTop headlines:\n{heads}"
+
+
 def _research(client: anthropic.Anthropic, context: str) -> str:
     """Step 1: web search se GIFT Nifty, FII/DII, aaj ke events, etc. (free text notes)."""
     messages: list = [{"role": "user", "content": context + "\n\n" + RESEARCH_PROMPT}]
-    for _ in range(5):
+    for _ in range(4):
         with client.beta.messages.stream(
             model=MODEL,
             max_tokens=32000,
             thinking={"type": "adaptive"},
             output_config={"effort": "medium"},
-            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 12,
+            cache_control={"type": "ephemeral"},
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 6,
                     "user_location": {"type": "approximate", "country": "IN", "timezone": "Asia/Kolkata"}}],
             messages=messages,
             **_FALLBACK,
@@ -212,36 +224,90 @@ def _research(client: anthropic.Anthropic, context: str) -> str:
     return notes or "Web research se kuch nahi mila."
 
 
-def analyze(news: list[dict], market: list[dict], today: str) -> dict:
-    """Step 1 research (web search) -> Step 2 structured JSON report.
+def _extract_json(text: str) -> dict:
+    """Response text me se JSON object nikaalo (```json fences ho to bhi)."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("JSON object nahi mila")
+    data = json.loads(text[start : end + 1])
+    missing = [k for k in REPORT_SCHEMA["required"] if k not in data]
+    if missing:
+        raise ValueError(f"Ye keys missing hain: {missing}")
+    return data
 
-    Do alag calls isliye: web search ke results citations ke saath aate hain, aur
-    citations structured output (output_config.format) ke saath allowed nahi hain.
+
+REPORT_FORMAT_NOTE = (
+    "Output: sirf ek valid JSON object do (koi aur text nahi), jo is JSON Schema se match kare. "
+    "Saari keys zaroori hain; list khaali ho to [] do. enum values exactly schema jaisi (lowercase/uppercase) likho.\n\n"
+    + json.dumps(REPORT_SCHEMA, ensure_ascii=False)
+)
+
+
+def analyze(news: list[dict], market: list[dict], today: str) -> dict:
+    """Step 1 research (web search) -> Step 2 JSON report.
+
+    Do alag calls isliye: research me web search chahiye; report step me poori news
+    list jaati hai, aur use baar-baar web search ke saath bhejna mehenga padta hai.
+    Report schema grammar-constrained structured output ke liye bahut bada hai, isliye
+    schema prompt me dete hain aur JSON khud validate karte hain (fail ho to 1 retry).
     """
     client = anthropic.Anthropic()
-    context = _build_user_message(news, market, today)
 
     try:
-        notes = _research(client, context)
+        notes = _research(client, _research_context(news, market, today))
     except anthropic.APIError as exc:  # research fail ho to bhi report bane
         print(f"[claude:research] failed, continuing without web notes: {exc}")
         notes = "Web research is baar fail ho gaya; sirf headlines aur market data par analysis karo."
 
-    with client.beta.messages.stream(
-        model=MODEL,
-        max_tokens=64000,
-        system=SYSTEM_PROMPT,
-        thinking={"type": "adaptive"},
-        output_config={"effort": "high", "format": {"type": "json_schema", "schema": REPORT_SCHEMA}},
-        messages=[{"role": "user", "content": f"{context}\n\n## Web research notes (aaj subah ki)\n{notes}\n\nAb poori report schema ke hisaab se do."}],
-        **_FALLBACK,
-    ) as stream:
-        response = stream.get_final_message()
-    _check(response, "report")
+    context = _build_user_message(news, market, today)
+    messages: list = [{
+        "role": "user",
+        "content": f"{context}\n\n## Web research notes (aaj subah ki)\n{notes}\n\nAb poori report do.",
+    }]
 
-    texts = [b.text for b in response.content if b.type == "text"]
-    if not texts:
-        raise RuntimeError("Response me text nahi mila")
-    report = json.loads(texts[-1])
+    for attempt in range(2):
+        with client.beta.messages.stream(
+            model=MODEL,
+            max_tokens=64000,
+            system=SYSTEM_PROMPT + "\n\n" + REPORT_FORMAT_NOTE,
+            thinking={"type": "adaptive"},
+            output_config={"effort": "high"},
+            messages=messages,
+            **_FALLBACK,
+        ) as stream:
+            response = stream.get_final_message()
+        _check(response, "report")
+        text = "\n".join(b.text for b in response.content if b.type == "text")
+        try:
+            report = _extract_json(text)
+            break
+        except (ValueError, json.JSONDecodeError) as exc:
+            print(f"[claude:report] invalid JSON (attempt {attempt + 1}): {exc}")
+            if attempt == 1:
+                raise RuntimeError(f"Report JSON invalid: {exc}") from exc
+            messages += [
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": f"JSON galat hai ({exc}). Poora report dobara sirf valid JSON me do."},
+            ]
+
+    _normalize(report)
     report["research_notes"] = notes
     return report
+
+
+def _normalize(report: dict) -> None:
+    """Enum values ki capitalization theek karo (website ke colors inhi par chalte hain)."""
+    lower_keys = {"impact", "view", "risk", "category", "sentiment"}
+    def fix(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, str) and k in lower_keys:
+                    obj[k] = v.strip().lower()
+                elif isinstance(v, str) and k == "action":
+                    obj[k] = v.strip().upper()
+                else:
+                    fix(v)
+        elif isinstance(obj, list):
+            for x in obj:
+                fix(x)
+    fix(report)
