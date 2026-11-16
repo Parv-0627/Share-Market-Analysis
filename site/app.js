@@ -257,6 +257,8 @@
     if (res.status === 401 || res.status === 403 || res.status === 404) {
       const err = new Error("auth");
       err.status = res.status;
+      err.step = (opts.method || "GET") === "POST" ? "run start" : "run status";
+      try { err.detail = (await res.json()).message || ""; } catch { err.detail = ""; }
       throw err;
     }
     if (!res.ok) throw new Error(`GitHub ${res.status}`);
@@ -317,7 +319,10 @@
       if (e.message === "nokey") {
         setStatus("❌ Refresh password abhi set nahi hua. Codespace terminal me <code>python set_password.py</code> chalaayein aur push karein.", "err");
       } else if (e.message === "auth") {
-        setStatus("❌ GitHub token kaam nahi kar raha (expire ho gaya ya permission kam hai). <code>python set_password.py</code> se naya token set karein.", "err");
+        const why = e.status === 401
+          ? "token galat ya expire ho gaya hai: <code>python set_password.py</code> se naya token set karein"
+          : "token ko is repo par <strong>Actions: Read and write</strong> permission nahi hai: github.com/settings/personal-access-tokens par token edit karke ye permission dein (token wahi rahega)";
+        setStatus(`❌ GitHub ne mana kiya (${e.status}, ${esc(e.step)}${e.detail ? ": " + esc(e.detail) : ""}). Wajah: ${why}.`, "err");
       } else {
         setStatus(`❌ Refresh fail: ${esc(e.message)}. <a href="https://github.com/${OWNER}/${REPO}/actions/workflows/${WORKFLOW}" target="_blank" rel="noopener">GitHub par khud chalayein</a>`, "err");
       }
